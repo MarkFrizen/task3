@@ -9,7 +9,7 @@ from langchain.prompts import ChatPromptTemplate
 
 # 1. Подключение к LM Studio (модель qwen/qwen3.5-9b)
 llm = ChatOpenAI(
-    openai_api_key="lm-studio",                  # любое значение
+    openai_api_key="none",                  # любое значение
     openai_api_base="http://192.168.8.11:1234/v1/", # стандартный порт LM Studio
     model_name="qwen/qwen3.5-9b",                # точное имя модели в LM Studio
     temperature=0.1,
