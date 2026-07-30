@@ -1,5 +1,5 @@
 from langchain_openai import ChatOpenAI
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, WebBaseLoader
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, WebBaseLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -16,15 +16,19 @@ llm = ChatOpenAI(
 )
 
 # 2. Загрузка документа
-source = "test_document.txt"  # замените на свой файл
+source = "test_document.txt"
+
 if source.endswith('.pdf'):
     loader = PyPDFLoader(source)
 elif source.endswith('.docx'):
     loader = Docx2txtLoader(source)
+elif source.endswith('.txt'):
+    loader = TextLoader(source, encoding='utf-8')
 elif source.startswith('http'):
     loader = WebBaseLoader(source)
 else:
-    raise ValueError("Поддерживаются: PDF, DOCX, URL")
+    raise ValueError("Поддерживаются: PDF, DOCX, TXT, URL")
+
 documents = loader.load()
 print(f"Загружено {len(documents)} страниц")
 
@@ -53,7 +57,7 @@ memory = ConversationBufferMemory(
     output_key="answer"
 )
 
-# 6. Промпт (System + Контекст + Вопрос)
+# 6. Промпт
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Ты - полезный ассистент. Отвечай на вопрос, используя только информацию из предоставленного контекста. Если ответа нет в контексте, скажи: 'Я не знаю, в документах этого нет'."),
     ("human", "Контекст:\n{context}\n\nВопрос: {question}")
