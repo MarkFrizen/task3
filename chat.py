@@ -16,8 +16,7 @@ llm = ChatOpenAI(
 )
 
 # 2. Загрузка документа
-source = "bau_fahj.pdf"  # замените на свой файл
-
+source = "test_document.txt"  # замените на свой файл
 if source.endswith('.pdf'):
     loader = PyPDFLoader(source)
 elif source.endswith('.docx'):
@@ -26,7 +25,6 @@ elif source.startswith('http'):
     loader = WebBaseLoader(source)
 else:
     raise ValueError("Поддерживаются: PDF, DOCX, URL")
-
 documents = loader.load()
 print(f"Загружено {len(documents)} страниц")
 
@@ -48,7 +46,7 @@ vectorstore = FAISS.from_documents(chunks, embeddings)
 retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 print("Индекс создан")
 
-# 5. Память (история диалога)
+# 5. Память
 memory = ConversationBufferMemory(
     memory_key="chat_history",
     return_messages=True,
