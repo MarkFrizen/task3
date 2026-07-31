@@ -21,7 +21,6 @@ llm = ChatOpenAI(
 # -------------------- 2. Загрузка документа --------------------
 # Поддерживаются: PDF, DOCX, TXT, веб-страницы (URL)
 source = "test_document.txt"  # измените на свой файл или URL
-
 if source.endswith('.pdf'):
     loader = PyPDFLoader(source)
 elif source.endswith('.docx'):
