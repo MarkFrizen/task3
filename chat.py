@@ -3,9 +3,9 @@ from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, We
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
-from langchain.prompts import ChatPromptTemplate
+from langchain_classic.memory import ConversationBufferMemory
+from langchain_classic.chains import ConversationalRetrievalChain
+from langchain_classic.prompts import ChatPromptTemplate
 
 # -------------------- 1. Подключение к LLM --------------------
 # Используем локальный сервер LM Studio с моделью Qwen 9B
@@ -59,7 +59,8 @@ print("Индекс создан")
 memory = ConversationBufferMemory(
     memory_key="chat_history",
     return_messages=True,
-    output_key="answer"
+    output_key="answer",
+    input_key="question"
 )
 
 # -------------------- 6. Промпт: System + Контекст + Вопрос --------------------
