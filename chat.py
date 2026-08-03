@@ -12,7 +12,7 @@ from langchain_classic.prompts import ChatPromptTemplate
 # Шаг 1: Подключение локальной LLM
 llm = ChatOpenAI(
     api_key="none",
-    base_url="http://192.168.0.140:1234/v1/",
+    base_url="http://localhost:1234/v1/",
     model="qwen/qwen3.5-9b",
     temperature=0.1,
 )
