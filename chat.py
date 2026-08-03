@@ -44,8 +44,7 @@ print(f"Создано {len(chunks)} чанков")
 # embedding_model_name = "all-MiniLM-L6-v2"
 # embedding_model_name = "paraphrase-multilingual-MiniLM-L12-v2"
 # ВАРИАНТ 2: если используешь свою локальную папку — оставь путь, но убедись, что она реально существует
-local_embedding_path = "/home/ubuntu/models/paraphrase-multilingual-MiniLM-L12-v2"
-embedding_model_name = local_embedding_path
+embedding_model_name = "all-MiniLM-L6-v2"
 embeddings = HuggingFaceEmbeddings(
     model_name=embedding_model_name,
     model_kwargs={"trust_remote_code": True},
@@ -78,13 +77,23 @@ qa_chain = ConversationalRetrievalChain.from_llm(
     verbose=False
 )
 
-# -------------------- 8. Интерактивный цикл диалога --------------------
+AUTO_TEST = False  # Set to True for automated testing
+AUTO_TEST_INPUT = "Что такое RAG?"
+
+# -------------------- 8. Интерактивный цикл диалога или авто-тест --------------------
 print("Чат-бот готов. Введите exit для выхода.")
-while True:
-    user_input = input("Вы: ")
-    if user_input.lower() in ["exit", "quit"]:
-        print("До свидания.")
-        break
+if AUTO_TEST:
+    user_input = AUTO_TEST_INPUT
+    print(f"Вы: {user_input}")
     result = qa_chain.invoke({"question": user_input})
     print("Бот:", result["answer"])
-    print()
+    print("Авто-тест завершён.")
+else:
+    while True:
+        user_input = input("Вы: ")
+        if user_input.lower() in ["exit", "quit"]:
+            print("До свидания.")
+            break
+        result = qa_chain.invoke({"question": user_input})
+        print("Бот:", result["answer"])
+        print()
