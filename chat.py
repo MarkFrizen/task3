@@ -1,6 +1,5 @@
 import warnings
 warnings.filterwarnings("ignore")
-
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -10,15 +9,15 @@ from langchain_classic.memory import ConversationBufferMemory
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.prompts import ChatPromptTemplate
 
-# -------------------- 1. Подключение к LLM локально --------------------
+# Шаг 1: Подключение локальной LLM
 llm = ChatOpenAI(
     api_key="none",
-    base_url="http://192.168.0.140:1234/v1/",  # адрес LM Studio
+    base_url="http://192.168.0.140:1234/v1/",
     model="qwen/qwen3.5-9b",
     temperature=0.1,
 )
 
-# -------------------- 2. Загрузка документа только локальные файлы --------------------
+# Шаг 2: Загрузка документа
 source = "test_document.txt"
 if source.endswith('.pdf'):
     loader = PyPDFLoader(source)
@@ -31,7 +30,7 @@ else:
 documents = loader.load()
 print(f"Загружено {len(documents)} страниц")
 
-# -------------------- 3. Умная нарезка текста с перекрытием --------------------
+# Шаг 3: Разбиение текста на чанки
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=500,
     chunk_overlap=50,
@@ -41,36 +40,31 @@ text_splitter = RecursiveCharacterTextSplitter(
 chunks = text_splitter.split_documents(documents)
 print(f"Создано {len(chunks)} чанков")
 
-# -------------------- 4. Векторный индекс офлайн --------------------
-# ВАРИАНТ 1: если у тебя уже есть модель в кэше сеть не потребуется
-# Раскомментируй одну из этих строк и закомментируй local_embedding_path ниже:
-# embedding_model_name = "all-MiniLM-L6-v2"
-# embedding_model_name = "paraphrase-multilingual-MiniLM-L12-v2"
-# ВАРИАНТ 2: если используешь свою локальную папку — оставь путь, но убедись, что она реально существует
+# Шаг 4: Векторный индекс — эмбеддинги + FAISS
 embedding_model_name = "all-MiniLM-L6-v2"
 embeddings = HuggingFaceEmbeddings(
     model_name=embedding_model_name,
     model_kwargs={"trust_remote_code": True},
-    encode_kwargs={"device": "cpu"}  # поставь cuda, если есть GPU
+    encode_kwargs={"device": "cpu"}
 )
 vectorstore = FAISS.from_documents(chunks, embeddings)
 retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 print("Индекс создан")
 
-# -------------------- 5. История диалога память --------------------
+# Шаг 5: История диалога
 memory = ConversationBufferMemory(
     memory_key="chat_history",
     return_messages=True,
     output_key="answer"
 )
 
-# -------------------- 6. Промпт --------------------
+# Шаг 6: Промпт
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Ты - полезный ассистент. Отвечай на вопрос, используя только информацию из предоставленного контекста. Если ответа нет в контексте, скажи: Я не знаю, в документах этого нет."),
     ("human", "Контекст:\n{context}\n\nВопрос: {question}")
 ])
 
-# -------------------- 7. Сборка RAG-цепочки --------------------
+# Шаг 7: RAG-цепочка
 qa_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=retriever,
@@ -80,7 +74,7 @@ qa_chain = ConversationalRetrievalChain.from_llm(
     verbose=False
 )
 
-# -------------------- 8. Интерактивный цикл диалога --------------------
+# Шаг 8: Интерактивный цикл
 print("Чат-бот готов. Введите exit для выхода.")
 while True:
     user_input = input("Вы: ")
