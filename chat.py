@@ -1,5 +1,8 @@
 import warnings
 warnings.filterwarnings("ignore")
+import os
+os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+os.environ['HF_HUB_OFFLINE'] = '1'
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -41,12 +44,15 @@ chunks = text_splitter.split_documents(documents)
 print(f"Создано {len(chunks)} чанков")
 
 # Шаг 4: Векторный индекс — эмбеддинги + FAISS
-embedding_model_name = "all-MiniLM-L6-v2"
+embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2"
 embeddings = HuggingFaceEmbeddings(
     model_name=embedding_model_name,
     model_kwargs={"trust_remote_code": True},
     encode_kwargs={"device": "cpu"}
 )
+# Принудительно устанавливаем оффлайн-режим для Hugging Face
+from huggingface_hub import constants
+constants.HF_HUB_OFFLINE = True
 vectorstore = FAISS.from_documents(chunks, embeddings)
 retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 print("Индекс создан")
