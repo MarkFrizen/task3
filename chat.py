@@ -12,7 +12,7 @@ from langchain_classic.memory import ConversationBufferMemory
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.prompts import ChatPromptTemplate
 
-# Шаг 1: Подключение локальной LLM
+# Подключение локальной LLM
 llm = ChatOpenAI(
     api_key="none",
     base_url="http://localhost:1234/v1/",
@@ -20,7 +20,7 @@ llm = ChatOpenAI(
     temperature=0.1,
 )
 
-# Шаг 2: Загрузка документа
+# Загрузка документа
 source = "test_document.txt"
 if source.endswith('.pdf'):
     loader = PyPDFLoader(source)
@@ -33,7 +33,7 @@ else:
 documents = loader.load()
 print(f"Загружено {len(documents)} страниц")
 
-# Шаг 3: Разбиение текста на чанки
+# Разбиение текста на чанки
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=500,
     chunk_overlap=50,
@@ -43,34 +43,31 @@ text_splitter = RecursiveCharacterTextSplitter(
 chunks = text_splitter.split_documents(documents)
 print(f"Создано {len(chunks)} чанков")
 
-# Шаг 4: Векторный индекс — эмбеддинги + FAISS
+# Векторный индекс — эмбеддинги + FAISS
 embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2"
 embeddings = HuggingFaceEmbeddings(
     model_name=embedding_model_name,
     model_kwargs={"trust_remote_code": True},
     encode_kwargs={"device": "cpu"}
 )
-# Принудительно устанавливаем оффлайн-режим для Hugging Face
-from huggingface_hub import constants
-constants.HF_HUB_OFFLINE = True
 vectorstore = FAISS.from_documents(chunks, embeddings)
 retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 print("Индекс создан")
 
-# Шаг 5: История диалога
+# История диалога
 memory = ConversationBufferMemory(
     memory_key="chat_history",
     return_messages=True,
     output_key="answer"
 )
 
-# Шаг 6: Промпт
+# Промпт
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Ты - полезный ассистент. Отвечай на вопрос, используя только информацию из предоставленного контекста. Если ответа нет в контексте, скажи: Я не знаю, в документах этого нет."),
     ("human", "Контекст:\n{context}\n\nВопрос: {question}")
 ])
 
-# Шаг 7: RAG-цепочка
+# RAG-цепочка
 qa_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=retriever,
@@ -80,7 +77,7 @@ qa_chain = ConversationalRetrievalChain.from_llm(
     verbose=False
 )
 
-# Шаг 8: Интерактивный цикл
+# Интерактивный цикл
 print("Чат-бот готов. Введите exit для выхода.")
 while True:
     user_input = input("Вы: ")
