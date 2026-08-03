@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -77,23 +80,13 @@ qa_chain = ConversationalRetrievalChain.from_llm(
     verbose=False
 )
 
-AUTO_TEST = False  # Set to True for automated testing
-AUTO_TEST_INPUT = "Что такое RAG?"
-
-# -------------------- 8. Интерактивный цикл диалога или авто-тест --------------------
+# -------------------- 8. Интерактивный цикл диалога --------------------
 print("Чат-бот готов. Введите exit для выхода.")
-if AUTO_TEST:
-    user_input = AUTO_TEST_INPUT
-    print(f"Вы: {user_input}")
+while True:
+    user_input = input("Вы: ")
+    if user_input.lower() in ["exit", "quit"]:
+        print("До свидания.")
+        break
     result = qa_chain.invoke({"question": user_input})
     print("Бот:", result["answer"])
-    print("Авто-тест завершён.")
-else:
-    while True:
-        user_input = input("Вы: ")
-        if user_input.lower() in ["exit", "quit"]:
-            print("До свидания.")
-            break
-        result = qa_chain.invoke({"question": user_input})
-        print("Бот:", result["answer"])
-        print()
+    print()
