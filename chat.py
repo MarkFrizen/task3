@@ -71,7 +71,7 @@ prompt_template = ChatPromptTemplate.from_messages([
 ])
 
 # -------------------- 7. Сборка RAG-цепочки --------------------
-# Объединяем LLM, ретривер, память и промпт в единый пайплайн.
+# Объединяем LLM, память и промпт в единый пайплайн.
 qa_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=retriever,
