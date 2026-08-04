@@ -8,7 +8,7 @@ from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, Te
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_classic.memory import ConversationBufferMemory
+
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.prompts import ChatPromptTemplate
 
@@ -54,36 +54,31 @@ vectorstore = FAISS.from_documents(chunks, embeddings)
 retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 print("Индекс создан")
 
-# История диалога
-memory = ConversationBufferMemory(
-    memory_key="chat_history",
-    return_messages=True,
-    output_key="answer"
-)
-
 # Промпт
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Ты - полезный ассистент. Отвечай на вопрос, используя только информацию из предоставленного контекста. Если ответа нет в контексте, скажи: Я не знаю, в документах этого нет."),
     ("human", "Контекст:\n{context}\n\nВопрос: {question}")
 ])
 
-# RAG-цепочка
+# RAG-цепочка (память встроена в новых версиях langchain)
 qa_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=retriever,
-    memory=memory,
     combine_docs_chain_kwargs={"prompt": prompt_template},
     return_source_documents=True,
     verbose=False
 )
 
-# Интерактивный цикл
+# Интерактивный цикл (история хранится через chat_history)
 print("Чат-бот готов. Введите exit для выхода.")
+chat_history = []
 while True:
     user_input = input("Вы: ")
     if user_input.lower() in ["exit", "quit"]:
         print("До свидания.")
         break
-    result = qa_chain.invoke({"question": user_input})
+    result = qa_chain.invoke({"question": user_input, "chat_history": chat_history})
     print("Бот:", result["answer"])
+    chat_history.append(f"Human: {user_input}")
+    chat_history.append(f"AI: {result['answer']}")
     print()
