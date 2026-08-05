@@ -2,9 +2,9 @@ from typing import List
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, WebBaseLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_classic.memory import ConversationBufferMemory
+from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -152,12 +152,7 @@ advanced_retriever = AdvancedRetriever(
 )
 
 # -------------------- 10. Память диалога --------------------
-memory = ConversationBufferMemory(
-    memory_key="chat_history",
-    return_messages=True,
-    output_key="answer",
-    input_key="question"
-)
+chat_history = InMemoryChatMessageHistory()
 
 # -------------------- 11. Промпт для генерации ответа --------------------
 prompt_template = ChatPromptTemplate.from_messages([
@@ -169,7 +164,7 @@ prompt_template = ChatPromptTemplate.from_messages([
 qa_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=advanced_retriever,
-    memory=memory,
+    chat_history=chat_history,
     combine_docs_chain_kwargs={"prompt": prompt_template},
     return_source_documents=True,
     verbose=False
