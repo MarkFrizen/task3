@@ -14,13 +14,13 @@ from pydantic import Field
 from sentence_transformers import CrossEncoder
 
 # -------------------- Флаги для включения продвинутых техник --------------------
-USE_QUERY_REWRITING = True      # Переписывать запрос с помощью LLM
+USE_QUERY_REWRITING = False     # Переписывать запрос с помощью LLM
 USE_HYDE = False                # Генерировать гипотетический ответ
-USE_MULTI_QUERY = True          # Генерировать несколько вариантов запроса
-USE_RERANKING = True            # Переранжировать результаты через Cross-Encoder
-USE_JUDGE = True                # Оценивать Faithfulness и Relevancy ответа
+USE_MULTI_QUERY = False         # Генерировать несколько вариантов запроса
+USE_RERANKING = False           # Переранжировать результаты через Cross-Encoder
+USE_JUDGE = False               # Оценивать Faithfulness и Relevancy ответа
 USE_DSPY = False                # Использовать DSPy для оптимизации промптов
-TOP_K_BASE = 20                 # Сколько документов достаём на первом этапе
+TOP_K_BASE = 5                  # Сколько документов достаём на первом этапе
 TOP_K_FINAL = 4                 # Сколько отдаём в генерацию после всех улучшений
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
@@ -137,11 +137,11 @@ class AdvancedRetriever(BaseRetriever):
             queries = generate_queries(enhanced)
             all_docs = []
             for q in queries:
-                docs = self.base_retriever.get_relevant_documents(q)
+                docs = self.base_retriever.invoke(q)
                 all_docs.append(docs)
             merged = reciprocal_rank_fusion(all_docs, k=60)
         else:
-            merged = self.base_retriever.get_relevant_documents(enhanced)
+            merged = self.base_retriever.invoke(enhanced)
         if USE_RERANKING:
             reranked = rerank_documents(query, merged, self.top_k_final)
         else:
