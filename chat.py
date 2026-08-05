@@ -164,7 +164,6 @@ prompt_template = ChatPromptTemplate.from_messages([
 qa_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=advanced_retriever,
-    chat_history=chat_history,
     combine_docs_chain_kwargs={"prompt": prompt_template},
     return_source_documents=True,
     verbose=False
@@ -228,7 +227,7 @@ while True:
     if user_input.lower() in ["exit", "quit"]:
         print("До свидания.")
         break
-    result = qa_chain.invoke({"question": user_input})
+    result = qa_chain.invoke({"question": user_input, "chat_history": chat_history.messages})
     answer = result["answer"]
     source_docs = result.get("source_documents", [])
     context_text = "\n".join([doc.page_content for doc in source_docs])
