@@ -119,7 +119,6 @@ def reciprocal_rank_fusion(results_lists: List[List], k: int = 60) -> List:
 
 # Reranking
 cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-
 def rerank_documents(query: str, documents: List, top_k: int = TOP_K_FINAL) -> List:
     pairs = [[query, doc.page_content] for doc in documents]
     scores = cross_encoder.predict(pairs)
