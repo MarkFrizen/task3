@@ -2,9 +2,9 @@ from typing import List
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, WebBaseLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_classic.memory import ConversationBufferMemory
+from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -13,19 +13,19 @@ from langchain_core.documents import Document
 from pydantic import Field
 from sentence_transformers import CrossEncoder
 
-# -------------------- Флаги для включения продвинутых техник --------------------
-USE_QUERY_REWRITING = True      # Переписывать запрос с помощью LLM
-USE_HYDE = False                # Генерировать гипотетический ответ
-USE_MULTI_QUERY = True          # Генерировать несколько вариантов запроса
-USE_RERANKING = True            # Переранжировать результаты через Cross-Encoder
-USE_JUDGE = True                # Оценивать Faithfulness и Relevancy ответа
-USE_DSPY = False                # Использовать DSPy для оптимизации промптов
-TOP_K_BASE = 20                 # Сколько документов достаём на первом этапе
-TOP_K_FINAL = 4                 # Сколько отдаём в генерацию после всех улучшений
+# Флаги для включения продвинутых техник
+USE_QUERY_REWRITING = False
+USE_HYDE = False
+USE_MULTI_QUERY = False
+USE_RERANKING = False
+USE_JUDGE = False
+USE_DSPY = False
+TOP_K_BASE = 5
+TOP_K_FINAL = 4
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 
-# -------------------- 1. Подключение к локальной LLM --------------------
+# Подключение к локальной LLM
 llm = ChatOpenAI(
     api_key="none",
     base_url="http://localhost:1234/v1/",
@@ -33,7 +33,7 @@ llm = ChatOpenAI(
     temperature=0.1,
 )
 
-# -------------------- 2. Загрузка документа --------------------
+# Загрузка документа
 source = "test_document.txt"
 if source.endswith('.pdf'):
     loader = PyPDFLoader(source)
@@ -48,7 +48,7 @@ else:
 documents = loader.load()
 print(f"Загружено {len(documents)} страниц")
 
-# -------------------- 3. Нарезка на чанки с перекрытием --------------------
+# Нарезка на чанки с перекрытием
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
     chunk_overlap=CHUNK_OVERLAP,
@@ -58,7 +58,7 @@ text_splitter = RecursiveCharacterTextSplitter(
 chunks = text_splitter.split_documents(documents)
 print(f"Создано {len(chunks)} чанков")
 
-# -------------------- 4. Векторное представление и индекс FAISS --------------------
+# Векторное представление и индекс FAISS
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 )
@@ -66,7 +66,7 @@ vectorstore = FAISS.from_documents(chunks, embeddings)
 base_retriever = vectorstore.as_retriever(search_kwargs={"k": TOP_K_BASE})
 print("Векторный индекс создан")
 
-# -------------------- 5. Query Rewriting --------------------
+# Query Rewriting
 rewrite_prompt = ChatPromptTemplate.from_template(
     "Перепиши следующий вопрос пользователя так, чтобы он содержал ключевые термины "
     "для поиска в базе знаний. Сохрани смысл, но сделай запрос более формальным и точным.\n"
@@ -74,13 +74,14 @@ rewrite_prompt = ChatPromptTemplate.from_template(
 )
 rewriter_chain = rewrite_prompt | llm | StrOutputParser()
 
-# -------------------- 6. HyDE --------------------
+# HyDE
 hyde_prompt = ChatPromptTemplate.from_template(
     "Напиши гипотетический ответ на вопрос пользователя. Ответ должен быть похож на "
     "фрагмент из документа, содержащий все факты, которые могли бы быть в ответе.\n"
     "Вопрос: {question}\nГипотетический ответ:"
 )
 hyde_chain = hyde_prompt | llm | StrOutputParser()
+
 def enhance_query(question: str) -> str:
     if USE_HYDE:
         return hyde_chain.invoke({"question": question})
@@ -89,7 +90,7 @@ def enhance_query(question: str) -> str:
     else:
         return question
 
-# -------------------- 7. Multi-Query и RRF-слияние --------------------
+# Multi-Query и RRF-слияние
 multi_query_prompt = ChatPromptTemplate.from_template(
     "Сгенерируй 3 разных варианта поискового запроса, которые помогут найти "
     "информацию по следующему вопросу. Каждый вариант должен быть кратким и точным.\n"
@@ -116,7 +117,7 @@ def reciprocal_rank_fusion(results_lists: List[List], k: int = 60) -> List:
                 break
     return result
 
-# -------------------- 8. Reranking --------------------
+# Reranking
 cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
 def rerank_documents(query: str, documents: List, top_k: int = TOP_K_FINAL) -> List:
     pairs = [[query, doc.page_content] for doc in documents]
@@ -124,7 +125,7 @@ def rerank_documents(query: str, documents: List, top_k: int = TOP_K_FINAL) -> L
     sorted_idx = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
     return [documents[i] for i in sorted_idx[:top_k]]
 
-# -------------------- 9. Кастомный ретривер, объединяющий все техники --------------------
+# Кастомный ретривер, объединяющий все техники
 class AdvancedRetriever(BaseRetriever):
     base_retriever: object = Field(exclude=True)
     llm: object = Field(exclude=True)
@@ -137,45 +138,40 @@ class AdvancedRetriever(BaseRetriever):
             queries = generate_queries(enhanced)
             all_docs = []
             for q in queries:
-                docs = self.base_retriever.get_relevant_documents(q)
+                docs = self.base_retriever.invoke(q)
                 all_docs.append(docs)
             merged = reciprocal_rank_fusion(all_docs, k=60)
         else:
-            merged = self.base_retriever.get_relevant_documents(enhanced)
+            merged = self.base_retriever.invoke(enhanced)
         if USE_RERANKING:
             reranked = rerank_documents(query, merged, self.top_k_final)
         else:
             reranked = merged[:self.top_k_final]
         return reranked
+
 advanced_retriever = AdvancedRetriever(
     base_retriever=base_retriever, llm=llm, cross_encoder=cross_encoder
 )
 
-# -------------------- 10. Память диалога --------------------
-memory = ConversationBufferMemory(
-    memory_key="chat_history",
-    return_messages=True,
-    output_key="answer",
-    input_key="question"
-)
+# Память диалога
+chat_history = InMemoryChatMessageHistory()
 
-# -------------------- 11. Промпт для генерации ответа --------------------
+# Промпт для генерации ответа
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Ты - полезный ассистент. Отвечай на вопрос, используя только информацию из предоставленного контекста. Если ответа нет в контексте, скажи: 'Я не знаю, в документах этого нет'."),
     ("human", "Контекст:\n{context}\n\nВопрос: {question}")
 ])
 
-# -------------------- 12. Сборка основной RAG-цепочки --------------------
+# Сборка основной RAG-цепочки
 qa_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=advanced_retriever,
-    memory=memory,
     combine_docs_chain_kwargs={"prompt": prompt_template},
     return_source_documents=True,
     verbose=False
 )
 
-# -------------------- 13. LLM‑as‑a‑Judge --------------------
+# LLM‑as‑a‑Judge
 if USE_JUDGE:
     faith_prompt = ChatPromptTemplate.from_template(
         "Оцени, насколько ответ соответствует предоставленному контексту, по шкале от 0 до 1, "
@@ -203,7 +199,7 @@ if USE_JUDGE:
         except:
             return 0.0
 
-# -------------------- 14. Опционально: DSPy --------------------
+# Опционально: DSPy
 if USE_DSPY:
     import dspy
     from dspy.teleprompt import BootstrapFewShot
@@ -226,14 +222,14 @@ if USE_DSPY:
     optimizer = BootstrapFewShot(metric=validate, max_bootstrapped_demos=2)
     optimized_generator = optimizer.compile(AnswerGenerator(), trainset=trainset)
 
-# -------------------- 15. Интерактивный цикл --------------------
+# Интерактивный цикл
 print("Чат-бот с продвинутыми техниками готов. Введите 'exit' для выхода.")
 while True:
     user_input = input("Вы: ")
     if user_input.lower() in ["exit", "quit"]:
         print("До свидания.")
         break
-    result = qa_chain.invoke({"question": user_input})
+    result = qa_chain.invoke({"question": user_input, "chat_history": chat_history.messages})
     answer = result["answer"]
     source_docs = result.get("source_documents", [])
     context_text = "\n".join([doc.page_content for doc in source_docs])
