@@ -26,7 +26,7 @@ CHUNK_OVERLAP = 50
 # Подключение к локальной LLM
 llm = ChatOpenAI(
     api_key="none",
-    base_url="http://localhost:1234/v1/",
+    base_url="http://192.168.8.11:1234/v1",
     model="google/gemma-4-12b-qat",
     temperature=0.1,
 )
