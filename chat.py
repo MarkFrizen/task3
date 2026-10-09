@@ -27,7 +27,7 @@ CHUNK_OVERLAP = 50
 llm = ChatOpenAI(
     api_key="none",
     base_url="http://localhost:1234/v1/",
-    model="qwen/qwen3.5-9b",
+    model="google/gemma-4-12b-qat",
     temperature=0.1,
 )
 
