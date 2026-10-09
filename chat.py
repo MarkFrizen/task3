@@ -12,8 +12,6 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document
 from pydantic import Field
 from sentence_transformers import CrossEncoder
-
-# Флаги для включения продвинутых техник
 USE_QUERY_REWRITING = True
 USE_HYDE = False
 USE_MULTI_QUERY = True
