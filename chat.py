@@ -1,4 +1,12 @@
+import os
 from typing import List
+MODELS_DIR = "./models"
+EMBEDDINGS_PATH = os.path.join(MODELS_DIR, "embeddings")
+RERANKER_PATH = os.path.join(MODELS_DIR, "reranker")
+if os.path.isdir(EMBEDDINGS_PATH) and os.path.isdir(RERANKER_PATH):
+    os.environ["HF_HUB_OFFLINE"] = "1"      # запрет обращений к huggingface.co
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"  # то же для библиотеки transformers
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, WebBaseLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -11,27 +19,32 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document
 from pydantic import Field
-from sentence_transformers import CrossEncoder
-USE_QUERY_REWRITING = True
-USE_HYDE = False
-USE_MULTI_QUERY = True
-USE_RERANKING = True
-USE_JUDGE = True
-USE_DSPY = False
-TOP_K_BASE = 20
-TOP_K_FINAL = 4
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 50
+from sentence_transformers import CrossEncoder, SentenceTransformer
+
+# Конфигурация: какие техники включены и параметры поиска
+USE_QUERY_REWRITING = True   # переписывание вопроса перед поиском
+USE_HYDE = False             # гипотетический ответ вместо переписанного вопроса
+USE_MULTI_QUERY = True       # 3 варианта запроса + слияние через RRF
+USE_RERANKING = True         # переранжирование cross-encoder'ом
+USE_JUDGE = True             # оценка Faithfulness/Relevancy после каждого ответа
+USE_DSPY = False             # автооптимизация промптов (опционально)
+
+TOP_K_BASE = 20              # сколько чанков достаёт векторный поиск
+TOP_K_FINAL = 4              # сколько лучших чанков уходит в промпт LLM
+CHUNK_SIZE = 500             # размер чанка в символах
+CHUNK_OVERLAP = 50           # перекрытие чанков, чтобы не рвать мысли на границе
 
 # Подключение к локальной LLM
+# LM Studio / Ollama / llama.cpp отдаёт OpenAI-совместимый API на localhost,
+# поэтому используем стандартный клиент ChatOpenAI с фейковым ключом.
 llm = ChatOpenAI(
     api_key="none",
     base_url="http://localhost:1234/v1",
     model="google/gemma-4-12b-qat",
-    temperature=0.1,
+    temperature=0.1,  # низкая температура для фактичности RAG-ответов
 )
 
-# Загрузка документа
+# Выбор загрузчика по типу источника
 source = "test_document.txt"
 if source.endswith('.pdf'):
     loader = PyPDFLoader(source)
@@ -40,13 +53,15 @@ elif source.endswith('.docx'):
 elif source.endswith('.txt'):
     loader = TextLoader(source, encoding='utf-8')
 elif source.startswith('http'):
-    loader = WebBaseLoader(source)
+    loader = WebBaseLoader(source)  # единственный вариант, требующий интернет
 else:
     raise ValueError("Поддерживаются: PDF, DOCX, TXT, URL")
 documents = loader.load()
 print(f"Загружено {len(documents)} страниц")
 
-# Нарезка на чанки с перекрытием
+# RecursiveCharacterTextSplitter режет по естественным границам (абзацы ->
+# предложения -> слова), сохраняя перекрытие, чтобы факт у границы чанков
+# не потерялся.
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
     chunk_overlap=CHUNK_OVERLAP,
@@ -56,15 +71,29 @@ text_splitter = RecursiveCharacterTextSplitter(
 chunks = text_splitter.split_documents(documents)
 print(f"Создано {len(chunks)} чанков")
 
-# Векторное представление и индекс FAISS
-embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-)
+# При первом запуске (нужен интернет) модель скачивается и сохраняется в
+# ./models/embeddings; при последующих — загружается только с диска.
+if not os.path.isdir(EMBEDDINGS_PATH):
+    print("Первый запуск: сохраняю эмбеддинги в ./models/embeddings ...")
+    try:
+        SentenceTransformer(
+            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+        ).save(EMBEDDINGS_PATH)
+    except Exception as e:
+        raise SystemExit(
+            f"Не удалось скачать модель ({e}).\n"
+            "Запустите скрипт один раз при интернете — дальше он работает офлайн."
+        )
+embeddings = HuggingFaceEmbeddings(model_name=EMBEDDINGS_PATH)
+
+# FAISS индексирует все чанки; ретривер будет возвращать TOP_K_BASE чанков
+# по косинусной близости к запросу.
 vectorstore = FAISS.from_documents(chunks, embeddings)
 base_retriever = vectorstore.as_retriever(search_kwargs={"k": TOP_K_BASE})
 print("Векторный индекс создан")
 
-# Query Rewriting
+# Просим LLM переформулировать разговорный вопрос в формальный поисковый
+# запрос с ключевыми терминами — так эмбеддинг запроса ближе к эмбеддингам чанков.
 rewrite_prompt = ChatPromptTemplate.from_template(
     "Перепиши следующий вопрос пользователя так, чтобы он содержал ключевые термины "
     "для поиска в базе знаний. Сохрани смысл, но сделай запрос более формальным и точным.\n"
@@ -72,7 +101,8 @@ rewrite_prompt = ChatPromptTemplate.from_template(
 )
 rewriter_chain = rewrite_prompt | llm | StrOutputParser()
 
-# HyDE
+# Вместо переписывания — генерируем правдоподобный ответ-«заглушку»: искать
+# будем не вопросом, а текстом, похожим на целевой фрагмент документа.
 hyde_prompt = ChatPromptTemplate.from_template(
     "Напиши гипотетический ответ на вопрос пользователя. Ответ должен быть похож на "
     "фрагмент из документа, содержащий все факты, которые могли бы быть в ответе.\n"
@@ -80,6 +110,7 @@ hyde_prompt = ChatPromptTemplate.from_template(
 )
 hyde_chain = hyde_prompt | llm | StrOutputParser()
 
+# Выбор способа улучшения запроса согласно флагам конфигурации.
 def enhance_query(question: str) -> str:
     if USE_HYDE:
         return hyde_chain.invoke({"question": question})
@@ -88,7 +119,9 @@ def enhance_query(question: str) -> str:
     else:
         return question
 
-# Multi-Query и RRF-слияние
+# LLM генерирует 3 разных варианта запроса; по каждому ищем отдельно, затем
+# сливаем списки результатов через Reciprocal Rank Fusion: чем выше чанк
+# в нескольких списках, тем выше его итоговый ранг.
 multi_query_prompt = ChatPromptTemplate.from_template(
     "Сгенерируй 3 разных варианта поискового запроса, которые помогут найти "
     "информацию по следующему вопросу. Каждый вариант должен быть кратким и точным.\n"
@@ -101,6 +134,7 @@ def generate_queries(question: str) -> List[str]:
     return [q.strip() for q in queries if q.strip()]
 
 def reciprocal_rank_fusion(results_lists: List[List], k: int = 60) -> List:
+    # k=60 — стандартная константа RRF, сглаживающая вклад верхних позиций.
     scores = {}
     for docs in results_lists:
         for rank, doc in enumerate(docs, 1):
@@ -115,15 +149,33 @@ def reciprocal_rank_fusion(results_lists: List[List], k: int = 60) -> List:
                 break
     return result
 
-# Reranking
-cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+# Bi-encoder (эмбеддинги) ищет быстро, но грубо; cross-encoder прогоняет пару
+# «запрос + чанк» целиком через трансформер и ранжирует точнее. Берём 20 грубых
+# кандидатов и оставляем TOP_K_FINAL лучших.
+if not os.path.isdir(RERANKER_PATH):
+    print("Первый запуск: сохраняю реранкер в ./models/reranker ...")
+    try:
+        _ce = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        try:
+            _ce.save(RERANKER_PATH)                    # sentence-transformers >= 4.0
+        except AttributeError:                         # старые версии библиотеки
+            _ce.model.save_pretrained(RERANKER_PATH)
+            _ce.tokenizer.save_pretrained(RERANKER_PATH)
+    except Exception as e:
+        raise SystemExit(
+            f"Не удалось скачать реранкер ({e}).\n"
+            "Запустите скрипт один раз при интернете — дальше он работает офлайн."
+        )
+cross_encoder = CrossEncoder(RERANKER_PATH)
 def rerank_documents(query: str, documents: List, top_k: int = TOP_K_FINAL) -> List:
     pairs = [[query, doc.page_content] for doc in documents]
     scores = cross_encoder.predict(pairs)
     sorted_idx = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
     return [documents[i] for i in sorted_idx[:top_k]]
 
-# Кастомный ретривер, объединяющий все техники
+# Наследуемся от BaseRetriever, чтобы наша сборка техник встраивалась
+# в стандартную RAG-цепочку LangChain как обычный источник контекста.
+# Порядок работы: улучшение запроса -> (Multi-Query + RRF) -> Reranking.
 class AdvancedRetriever(BaseRetriever):
     base_retriever: object = Field(exclude=True)
     llm: object = Field(exclude=True)
@@ -146,12 +198,13 @@ class AdvancedRetriever(BaseRetriever):
         else:
             reranked = merged[:self.top_k_final]
         return reranked
-
 advanced_retriever = AdvancedRetriever(
     base_retriever=base_retriever, llm=llm, cross_encoder=cross_encoder
 )
 
-# Память диалога
+# BufferMemory хранит всю историю переписки; ConversationalRetrievalChain
+# использует её, чтобы переформулировать уточняющие вопросы ("а ещё?") в
+# самодостаточные перед поиском.
 memory = ConversationBufferMemory(
     memory_key="chat_history",
     return_messages=True,
@@ -159,13 +212,15 @@ memory = ConversationBufferMemory(
     input_key="question"
 )
 
-# Промпт для генерации ответа
+# Жёсткое ограничение «только из контекста» + явная формула отказа — базовая
+# защита от галлюцинаций, когда ответа в документе нет.
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", "Ты - полезный ассистент. Отвечай на вопрос, используя только информацию из предоставленного контекста. Если ответа нет в контексте, скажи: 'Я не знаю, в документах этого нет'."),
     ("human", "Контекст:\n{context}\n\nВопрос: {question}")
 ])
 
-# Сборка основной RAG-цепочки
+# Полный цикл: вопрос -> (память + ретривер) -> промпт с контекстом -> LLM ->
+# ответ + исходные чанки (для оценки и отладки).
 qa_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=advanced_retriever,
@@ -175,7 +230,9 @@ qa_chain = ConversationalRetrievalChain.from_llm(
     verbose=False
 )
 
-# LLM‑as‑a‑Judge
+# Та же LLM выступает судьёй: Faithfulness — не выдуман ли ответ относительно
+# контекста; Relevancy — отвечает ли ответ на заданный вопрос. Оценки печатаются
+# после каждого ответа и позволяют отслеживать деградацию качества.
 if USE_JUDGE:
     faith_prompt = ChatPromptTemplate.from_template(
         "Оцени, насколько ответ соответствует предоставленному контексту, по шкале от 0 до 1, "
@@ -203,7 +260,9 @@ if USE_JUDGE:
         except:
             return 0.0
 
-# Опционально: DSPy
+# Альтернативный подход: вместо ручных промптов описываем модуль с сигнатурой
+# «вопрос+контекст -> ответ» и автоматически оптимизируем промпт по мини-датасету
+# с метрикой. Отключено по умолчанию (USE_DSPY = False).
 if USE_DSPY:
     import dspy
     from dspy.teleprompt import BootstrapFewShot
@@ -226,7 +285,7 @@ if USE_DSPY:
     optimizer = BootstrapFewShot(metric=validate, max_bootstrapped_demos=2)
     optimized_generator = optimizer.compile(AnswerGenerator(), trainset=trainset)
 
-# Интерактивный цикл
+# Читаем вопрос пользователя, получаем ответ бота, печатаем найденные источники
 print("Чат-бот с продвинутыми техниками готов. Введите 'exit' для выхода.")
 while True:
     user_input = input("Вы: ")
